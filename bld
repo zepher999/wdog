@@ -1,0 +1,3 @@
+k++  wdog
+cp  wdog  tst_process/
+cp  wdog  tst_process/wdog_000/
