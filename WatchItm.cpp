@@ -8,7 +8,10 @@ SWatchItm::SWatchItm()
    args = NULL;
    pid = 0;
    timPid = 0;
-   bValid = true;
+   nRetryIntrvl = 0;
+   nRetryLmt = -1;
+   bRun = true;
+   bScheduled = false;
 }
 
 
@@ -17,9 +20,9 @@ SWatchItm::SWatchItm(const KStr & _strImgName, const KStr & _strArgs, pid_t _pid
    args = NULL;
    pid = _pid;
    timPid = 0;
-   bValid = true;
+   bScheduled = false;
    
-   Set(_strImgName, _strArgs);
+   Set(0, -1, true, _strImgName, _strArgs);
 }
 
 
@@ -44,14 +47,29 @@ void SWatchItm::ClearArgsArr()
 }
 
 
-void SWatchItm::Set(const KStr & _strImgName, const KStr & _strArgs)
+void SWatchItm::Set(int _nRetryIntrvl, int _nRetryLmt, bool _bRun, const KStr & _strImgName, const KStr & _strArgs)
 {
    if (strImgName==_strImgName && strArgs==_strArgs)       return;
    
    strImgName = KFileIO::ResolvedPath(_strImgName);
    strArgs = _strArgs;
+   nRetryIntrvl = _nRetryIntrvl;
+   nRetryLmt = _nRetryLmt;
+   bRun = _bRun;
    
    _BldArgsArr();
+}
+
+
+bool SWatchItm::FuncFndByImgName(SWatchItm * const & pItm, void * pvFndCriteria)
+{
+   return pItm->strImgName==*((KStr *)pvFndCriteria) || KFileIO::FileName(pItm->strImgName)==*((KStr *)pvFndCriteria);
+}
+
+
+bool SWatchItm::FuncFndByPid(SWatchItm * const & pItm, void * pvFndCriteria)
+{
+   return pItm->pid == *((int *)pvFndCriteria);
 }
 
 

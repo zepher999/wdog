@@ -7,10 +7,14 @@ struct SWatchItm
    pid_t          pid;
    KStr           strImgName;
    KStr           strArgs;
+   int            nRetryIntrvl;
+   int            nRetryLmt;
+   bool           bRun;
+   bool           bScheduled;
+
    char       **  args;
    KLock          lock;
    u_int          timPid;
-   bool           bValid;
    
    
    
@@ -19,7 +23,11 @@ struct SWatchItm
    ~SWatchItm();
    
    void ClearArgsArr();
-   void Set(const KStr & _strImgName, const KStr & _strArgs);
+   void Set(int _nRetryIntrvl, int _nRetryLmt, bool _bRun, const KStr & _strImgName, const KStr & _strArgs);
+   
+   
+   static bool FuncFndByImgName(SWatchItm * const & pItm, void * pvFndCriteria);
+   static bool FuncFndByPid(SWatchItm * const & pItm, void * pvFndCriteria);
    
    
 private:

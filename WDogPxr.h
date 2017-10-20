@@ -6,6 +6,22 @@
 #include <poll.h>
 
 
+
+enum CmdEnum
+{
+   eCmd_Start,
+   eCmd_Stop,
+   eCmd_Kill   
+};
+
+extern const int CmdArr[];
+
+extern const char * CmdStrings[];
+
+typedef KEnum<CmdEnum, CmdArr, CmdStrings, 3> CCmdEnum;
+
+
+
 class CWDogPxr : public KThreadProcessor
 {
 public:
@@ -23,13 +39,8 @@ public:
    
    void Process();
    void ProcessItm(SWatchItm * pItm);
+   void CmdProcess(const KStr & strCmdItm, const CCmdEnum & eCmd);
 
-   void CmdStopSvc(const KStr & strCmdItm);
-   void CmdKill(const KStr & strCmdItm);
-   
-   void JippoOutput();
-   void JippoOthr();
-   
    
 protected:
    char                           **   m_envp;
@@ -44,11 +55,9 @@ protected:
    
    
    pid_t _GetCmdPid(const KStr & strCmdItm) const;
-   void _CmdProcess(const KStr & strCmdItm, bool bKill);
-
-   void _CmdPid(pid_t pid, bool bKill, KLog & OutLog);
-   void _CmdItm(SWatchItm * pItm, bool bKill, KLog & OutLog);
-   void _CmdSelf(bool bKill, KLog & OutLog);
+   void _CmdPid(pid_t pid, const CCmdEnum & eCmd, KLog & OutLog);
+   void _CmdItm(SWatchItm * pItm, const CCmdEnum & eCmd, KLog & OutLog);
+   void _CmdSelf(const CCmdEnum & eCmd, KLog & OutLog);
 
    void _StartWatching();
    void _ProcessPsLst(SWatchItm * pItm, bool bCreate, KDLnkList<pid_t> * pLst);

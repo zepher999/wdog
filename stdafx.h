@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <KLibIncUse.h>
 #include <KLibThreadIncUse.h>
+#include <KLibSyncIncUse.h>
 #include <KLibUIIncUse.h>
 
 #include "Loggers.h"

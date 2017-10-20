@@ -51,6 +51,7 @@ void CConsoleMain::ShowUsage()
    printf("       %s  <-000_run>  [-cold]=def or [-hot]\n", KFileIO::AppName().sz());
    printf("       %s  <watch_list_file>  [watch_list_file_othr]  [-cold] or [-hot]=def\n\n", KFileIO::AppName().sz());
    
+   printf("       %s  <-start_svc> [!] or [*] or [process_name]\n", KFileIO::AppName().sz());
    printf("       %s  <-stop_svc>  [!] or [*] or [process_name] or [pid=x]\n", KFileIO::AppName().sz());
    printf("       %s  <-kill>      [!] or [*] or [process_name] or [pid=x]\n\n", KFileIO::AppName().sz());
          
@@ -94,7 +95,7 @@ void CConsoleMain::ParseArgs(int argc, char * argv[], char * envp[])
       return;
    }
       
-   if (strArg == "-stop_svc" || strArg == "-kill")
+   if (strArg == "-start_svc" || strArg == "-stop_svc" || strArg == "-kill")
    {
       if (argc != 3)                          throw CAppException(eApp_InvalidNumArgs, "Invalid number of arguments[%d] parsed for -stop_svc switch", argc-1);
       
@@ -283,13 +284,15 @@ void CConsoleMain::_Daemonize()
       KStr strCmd = fr.GetKStrField(" ");
       KStr strCmdItm = fr.GetLine();
       
-      if (strCmd == "-stop_svc")          m_pxrWDog.CmdStopSvc(strCmdItm);
-      else if (strCmd == "-kill")         m_pxrWDog.CmdKill(strCmdItm);
+      if (strCmd == "-start_svc")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Start);
+      else if (strCmd == "-stop_svc")     m_pxrWDog.CmdProcess(strCmdItm, eCmd_Stop);
+      else if (strCmd == "-kill")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Kill);
       else                                Log("Invalid cmd [%s] received", strCmd.sz());
    }
    
    fifoInst.Close();
    m_pxrWDog.StopWatching();
+   m_pxrWDog.Deactivate();
    exit(EXIT_SUCCESS);
 }
 
@@ -308,7 +311,10 @@ void CConsoleMain::_EnsureDefCsv(const KStr & strBin, const KStr & strCsv, const
    if (!fp)     throw CAppException(eApp_FileOpenError, "Unable to create new csv file [%s] due to error [%s]", strCsvOther.sz(), strerror(errno));
    KAutoReleaser::KAutoFileClose afc(&fp);
    
-   if (bAddRec)      fprintf(fp, "%s, %s %s\n", strBin.sz(), strCsv.sz(), strCsvOther.sz());
+   fprintf(fp, "--%s, %s, %s, %s, %s\n", "Retry Intrvl", "Retry Lmt", "Run", "Image Path", "Arguments");
+   fprintf(fp, "------------------------------------------------------------------\n");
+
+   if (bAddRec)      fprintf(fp, "%d, %d, %d, %s, %s %s\n", 0, -1, 1, strBin.sz(), strCsv.sz(), strCsvOther.sz());
 }
 
 
@@ -329,7 +335,7 @@ void CConsoleMain::_UpdtDefCsv(const KStr & strBin, const KStr & strCsv, const K
    SWatchItm * pItm;
    for_each_itm(SWatchItm *, pItm, (*flpWatchItm.PtrLst()))
    {
-      fprintf(fp, "%s", pItm->strImgName.sz());
+      fprintf(fp, "%d, %d, %d, %s", pItm->nRetryIntrvl, pItm->nRetryLmt, pItm->bRun, pItm->strImgName.sz());
       if (pItm->strArgs.IsEmpty())     continue;
       
       fprintf(fp, ", %s\n", pItm->strArgs.sz());

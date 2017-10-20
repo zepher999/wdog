@@ -28,6 +28,8 @@ CWDogPxr * CWatchItmFLP::GetParent() const
 
 bool CWatchItmFLP::ProcessLine(const KStr & strLn, SWatchItm * pItm)
 {
+   if (strLn.TrimLeftCopy().Left(2) == "--")       return false;
+   
    bool bSuccess = m_bLoadOnly ? _ProcessLineOutput(strLn, pItm) : _ProcessLineInput(strLn, pItm);
    if (!bSuccess)       return false;
    
@@ -40,7 +42,7 @@ bool CWatchItmFLP::ProcessLine(const KStr & strLn, SWatchItm * pItm)
 
 void CWatchItmFLP::ProcessItem(SWatchItm * pItm)
 {
-   if (!pItm->pid)    m_pParent->ProcessItm(pItm);
+   if (!pItm->pid && pItm->bRun)    m_pParent->ProcessItm(pItm);
 }
 
 
@@ -53,22 +55,22 @@ void CWatchItmFLP::LogLst()
    Log("");
    Log("");
    
-   Log("%-10s %-20s %-30s", "Pid", "ImageName", "Args");
-   Log("----------------------------------------------------------------------------");
+   Log("%-10s %10s %10s %10s %-20s %-30s", "Pid", "RetryIntrvl", "RetryLmt", "Run", "ImageName", "Args");
+   Log("------------------------------------------------------------------------------------------------");
    
    SWatchItm * pItm;
    for_each_itm (SWatchItm *, pItm, m_lstItems)
    {
-      Log("%-10d %-20s %-30s", pItm->pid, pItm->strImgName.sz(), pItm->strArgs.sz());
+      Log("%-10d %10d %10d %10d %-20s %-30s", pItm->pid, pItm->nRetryIntrvl, pItm->nRetryLmt, pItm->bRun, pItm->strImgName.sz(), pItm->strArgs.sz());
    }
    
-   Log("============================================================================");
+   Log("===================================================+++++++++++++++++++=========================");
 }
 
 
 SWatchItm * CWatchItmFLP::GetItm(pid_t pid)
 {
-    SWatchItm ** ppFnd = m_lstItems.GetItemPtr(_FuncFndByPid, &pid);
+    SWatchItm ** ppFnd = m_lstItems.GetItemPtr(SWatchItm::FuncFndByPid, &pid);
     
     return ppFnd ? *ppFnd : NULL;
 }
@@ -76,7 +78,7 @@ SWatchItm * CWatchItmFLP::GetItm(pid_t pid)
 
 SWatchItm * CWatchItmFLP::GetItm(const KStr & strImgName)
 {
-   SWatchItm ** ppFnd = m_lstItems.GetItemPtr(_FuncFndByImgName, (KStr *)&strImgName);
+   SWatchItm ** ppFnd = m_lstItems.GetItemPtr(SWatchItm::FuncFndByImgName, (KStr *)&strImgName);
     
    return ppFnd ? *ppFnd : NULL;
 }
@@ -112,7 +114,7 @@ void CWatchItmFLP::SaveFile(const KStr & strFile)
    SWatchItm * pItm;
    for_each_itm (SWatchItm *, pItm, m_lstItems)
    {
-      fprintf(fp, "%d, %s, %s\n", pItm->pid, pItm->strImgName.sz(), pItm->strArgs.sz());
+      fprintf(fp, "%d, %d, %d, %d, %s, %s\n", pItm->pid, pItm->nRetryIntrvl, pItm->nRetryLmt, pItm->bRun, pItm->strImgName.sz(), pItm->strArgs.sz());
    }
 }
 
@@ -142,12 +144,15 @@ bool CWatchItmFLP::_ProcessLineInput(const KStr & strLn, SWatchItm * pItm, KFiel
    try
    {
       KFieldReader fr(strLn);
-      pFR = pFR ? pFR : &fr;
+      if (!pFR)   pFR = &fr;
       
+      int nRetryIntrvl = pFR->GetIntField(",");
+      int nRetryLmt = pFR->GetIntField(",");
+      bool bRun = pFR->GetIntField(",") != 0;
       KStr strImgName = _GetInputField(pFR);
       if (strImgName.IsEmpty())        return false;
       
-      pItm->Set(strImgName, _GetInputField(pFR));
+      pItm->Set(nRetryIntrvl, nRetryLmt, bRun, strImgName, _GetInputField(pFR));
       return true;
    }
    catch (KFieldReaderException & e)
@@ -187,17 +192,3 @@ bool CWatchItmFLP::_TooCloseToPrevLog()
    m_uiLasLogTic = uiTic;
    return false;
 }
-
-
-bool CWatchItmFLP::_FuncFndByPid(SWatchItm * const & pItm, void * pvFndCriteria)
-{
-   return pItm->bValid && pItm->pid == *((int *)pvFndCriteria);
-}
-
-
-bool CWatchItmFLP::_FuncFndByImgName(SWatchItm * const & pItm, void * pvFndCriteria)
-{
-   return pItm->bValid && (pItm->strImgName == *((KStr *)pvFndCriteria) || KFileIO::FileName(pItm->strImgName) == *((KStr *)pvFndCriteria));
-}
-
-

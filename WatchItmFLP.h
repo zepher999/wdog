@@ -37,9 +37,6 @@ private:
    bool _ProcessLineInput(const KStr & strLn, SWatchItm * pItm, KFieldReader * pFR=NULL);
    bool _ProcessLineOutput(const KStr & strLn, SWatchItm * pItm);
    bool _TooCloseToPrevLog();
-   
-   static bool _FuncFndByPid(SWatchItm * const & pItm, void * pvFndCriteria);
-   static bool _FuncFndByImgName(SWatchItm * const & pItm, void * pvFndCriteria);
 };
 
 

@@ -81,7 +81,7 @@ void CFifoInst::Clear()
 
 FILE * CFifoInst::_EnsureFifo()
 {
-   if (!m_bIsOwner && !KFileIO::FileExist(m_strFifoFile))         throw CAppException(eApp_FileNotFound, "Fifo File [%s] not found implying process is inactivedue", m_strFifoFile.sz());
+   if (!m_bIsOwner && !KFileIO::FileExist(m_strFifoFile))         throw CAppException(eApp_FileNotFound, "Fifo File [%s] not found implying process is inactive", m_strFifoFile.sz());
 
    if (m_bIsOwner && KFileIO::FileExist(m_strFifoFile))
    {

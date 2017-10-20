@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "WDogPxr.h"
 #include "FifoInst.h"
+#include "TimeOutWatchItm.h"
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <stdlib.h>
@@ -9,6 +10,20 @@
 
 
 #define RELAUNCH_INTERVAL 2000
+
+
+const char * CmdStrings[] = {
+                              "start_svc",
+                              "stop_svc",
+                              "kill -9"
+                            };
+                
+                      
+const int CmdArr[] = {
+                        eCmd_Start,
+                        eCmd_Stop,
+                        eCmd_Kill   
+                     };                      
 
 
 
@@ -34,6 +49,8 @@ void CWDogPxr::Activate(char ** envp)
    
    m_pxrMonitorScan.Activate(this, &CWDogPxr::_MonitorProcessesScan, 13000);
    m_pxrOutputLst.Activate(this, &CWDogPxr::_OutputLst, -1);
+   KTimeoutMgr::Instance()->Activate();
+
    SetCycleSleepTime(1000);
    
    int ret = prctl(PR_SET_CHILD_SUBREAPER, (u_long)getpid(), (u_long)0, (u_long)0);
@@ -44,6 +61,8 @@ void CWDogPxr::Activate(char ** envp)
 void CWDogPxr::Deactivate()
 {
    StopWatching();
+   
+   KTimeoutMgr::Instance()->Deactivate();
 }
 
 
@@ -73,6 +92,9 @@ void CWDogPxr::StartWatching(const KStr & strWatchListFile)
    Log("Starting monitor scanner");
    m_pxrMonitorScan.Start();
    
+   Log("Starting TimeoutMgr");
+   KTimeoutMgr::Instance()->Start();
+   
    Log("Started WatchDog");
 }
 
@@ -84,7 +106,9 @@ void CWDogPxr::StopWatching()
    
    _UnblockWait();
 
+   KTimeoutMgr::Instance()->Stop();
    Stop();
+
    m_pxrMonitorScan.Stop();
    m_pxrOutputLst.Stop();
    Log("Stopped WatchDog");
@@ -99,8 +123,16 @@ void CWDogPxr::Process()
 
 void CWDogPxr::ProcessItm(SWatchItm * pItm)
 {
+   if (pItm->bScheduled)               return;
    if (!pItm->lock.Lock(0))            return;
    KLock::KAutoReleaser ar(&pItm->lock);
+   
+   u_int currTic = KDate::GetTickCount();
+   if (currTic - pItm->timPid < (u_int)pItm->nRetryIntrvl)
+   {
+      KTimeoutMgr::Instance()->AddTimeoutItem(new STimeOutWatchItm(this, pItm, (u_int)pItm->nRetryIntrvl - currTic + pItm->timPid));
+      return;
+   }
    
    _ProcessPsLst(pItm, true, NULL);
    
@@ -125,15 +157,46 @@ void CWDogPxr::ProcessItm(SWatchItm * pItm)
 }
 
 
-void CWDogPxr::CmdStopSvc(const KStr & strCmdItm)
+void CWDogPxr::CmdProcess(const KStr & strCmdItm, const CCmdEnum & eCmd)
 {
-   _CmdProcess(strCmdItm, false);
-}
-
-
-void CWDogPxr::CmdKill(const KStr & strCmdItm)
-{
-   _CmdProcess(strCmdItm, true);
+   KLog OutLog(KFileIO::Join(KFileIO::AppPath(), KFileIO::AppName() + ".output.txt"));
+   OutLog.EraseLogFile();
+   
+   if (eCmd != eCmd_Start)
+   {
+      pid_t pid = _GetCmdPid(strCmdItm);
+      if (pid)
+      {
+         _CmdPid(pid, eCmd, OutLog);
+         return;
+      }
+   }
+   
+   bool bFound = strCmdItm=="*" || strCmdItm=="!" || strCmdItm==KFileIO::FileNameAndExt(KFileIO::GetModulePathName());
+   
+   SWatchItm * pItm;
+   for_each_itm(SWatchItm *, pItm, (*m_flpWatchItm.PtrLst()))
+   {
+      if (!pItm->bRun && eCmd!=eCmd_Start)                        continue;
+      if (KFileIO::FileNameAndExt(pItm->strImgName) != strCmdItm)
+      {
+         if (strCmdItm == "*")
+         {
+            if (KFileIO::FileNameAndExt(pItm->strImgName) == KFileIO::FileNameAndExt(KFileIO::GetModulePathName()))            continue;
+         }
+         else if (strCmdItm != "!")      
+         {
+            continue;
+         }
+      }
+      
+      bFound = true;
+      _CmdItm(pItm, eCmd, OutLog);
+   }
+   
+   if (!bFound)      OutLog.PlainWrite("Unable to find process [%s] for Cmd [%s]\n", strCmdItm.sz(), eCmd.ToString().sz());
+   
+   if (strCmdItm=="!" || strCmdItm==KFileIO::FileNameAndExt(KFileIO::GetModulePathName()))      _CmdSelf(eCmd, OutLog);
 }
 
 
@@ -156,55 +219,15 @@ pid_t CWDogPxr::_GetCmdPid(const KStr & strCmdItm) const
 }
 
 
-void CWDogPxr::_CmdProcess(const KStr & strCmdItm, bool bKill)
+void CWDogPxr::_CmdPid(pid_t pid, const CCmdEnum & eCmd, KLog & OutLog)
 {
-   KLog OutLog(KFileIO::Join(KFileIO::AppPath(), KFileIO::AppName() + ".output.txt"));
-   OutLog.EraseLogFile();
-   
-   pid_t pid = _GetCmdPid(strCmdItm);
-   if (pid)
-   {
-      _CmdPid(pid, bKill, OutLog);
-      return;
-   }
-   
-   bool bFound = strCmdItm=="*" || strCmdItm=="!" || strCmdItm==KFileIO::FileNameAndExt(KFileIO::GetModulePathName());
-   
-   SWatchItm * pItm;
-   for_each_itm(SWatchItm *, pItm, (*m_flpWatchItm.PtrLst()))
-   {
-      if (!pItm->bValid)                        continue;
-      if (KFileIO::FileNameAndExt(pItm->strImgName) != strCmdItm)
-      {
-         if (strCmdItm == "*")
-         {
-            if (KFileIO::FileNameAndExt(pItm->strImgName) == KFileIO::FileNameAndExt(KFileIO::GetModulePathName()))            continue;
-         }
-         else if (strCmdItm != "!")      
-         {
-            continue;
-         }
-      }
-      
-      bFound = true;
-      _CmdItm(pItm, bKill, OutLog);
-   }
-   
-   if (!bFound)      OutLog.PlainWrite("Unable to find process [%s] for Cmd [%s]\n", strCmdItm.sz(), bKill?"kill -9":"stop_svc");
-   
-   if (strCmdItm=="!" || strCmdItm==KFileIO::FileNameAndExt(KFileIO::GetModulePathName()))      _CmdSelf(bKill, OutLog);
-}
-
-
-void CWDogPxr::_CmdPid(pid_t pid, bool bKill, KLog & OutLog)
-{
-   if (pid == getpid() || pid == 9999)
+   if (pid == getpid())
    {
       SWatchItm * pItm = m_flpWatchItm.GetItm(KFileIO::FileName(KFileIO::GetModulePathName()));
-      if (pItm)
+      if (pItm && pItm->bRun)
       {
          KStr strFifoF = pItm->strImgName+".fifo";
-         KStr strW = KStr::Str("%s pid=%d", bKill?"-kill":"-stop_svc", pid);
+         KStr strW = KStr::Str("%s pid=%d", eCmd.ToString().sz(), pid);
          
          CFifoInst fifo;
          fifo.SetFifoFile(strFifoF);
@@ -217,40 +240,52 @@ void CWDogPxr::_CmdPid(pid_t pid, bool bKill, KLog & OutLog)
          return;
       }
       
-      _CmdSelf(bKill, OutLog);
+      _CmdSelf(eCmd, OutLog);
       return;
    }
    
    SWatchItm * pItm = m_flpWatchItm.GetItm(pid);
-   if (!pItm)
+   if (!pItm || !pItm->bRun)
    {
-      OutLog.PlainWrite("Unable to process [%s] cmd because Process with pid [%d] does not exist\n", bKill?"kill -9":"stop_svc", pid);
+      OutLog.PlainWrite("Unable to process [%s] cmd because Process with pid [%d] does not exist\n", eCmd.ToString().sz(), pid);
       return;
    }
    
-   _CmdItm(pItm, bKill, OutLog);   
+   _CmdItm(pItm, eCmd, OutLog);   
 }
 
 
-void CWDogPxr::_CmdItm(SWatchItm * pItm, bool bKill, KLog & OutLog)
+void CWDogPxr::_CmdItm(SWatchItm * pItm, const CCmdEnum & eCmd, KLog & OutLog)
 {
+   if (eCmd == eCmd_Start)
+   {
+      if (pItm->bRun && pItm->pid)
+      {
+         OutLog.PlainWrite("Process [%s] is already running with pid [%d]\n", pItm->strImgName.sz(), pItm->pid);
+         return;
+      }
+
+      pItm->bRun = true;
+      OutLog.PlainWrite("Set process [%s] to start running\n", pItm->strImgName.sz());
+      return;
+   }
+
    KStr strCmd;
-   pItm->bValid = false;
-   
-   if (bKill)                 strCmd.Format("kill -9 %d", pItm->pid);
-   else                       strCmd.Format("stop_svc %s", pItm->strImgName.sz());
+   pItm->bRun = false;
+
+   if (eCmd == eCmd_Kill)                 strCmd.Format("kill -9 %d", pItm->pid);
+   else                                   strCmd.Format("stop_svc %s", pItm->strImgName.sz());
    
    system(strCmd.sz());
    OutLog.PlainWrite("Executed [%s]\n", strCmd.sz());
 }
 
 
-void CWDogPxr::_CmdSelf(bool bKill, KLog & OutLog)
+void CWDogPxr::_CmdSelf(const CCmdEnum & eCmd, KLog & OutLog)
 {
-   KStr strCmd;
-
-   if (bKill)                 strCmd.Format("kill -9 %d", getpid());
-   else                       strCmd.Format("stop_svc %s", KFileIO::GetModulePathName().sz());
+   if (eCmd == eCmd_Start)       return;
+   
+   KStr strCmd = eCmd == eCmd_Stop ? KStr::Str("stop_svc %s", KFileIO::GetModulePathName().sz()) : KStr::Str("kill -9 %d", getpid());
 
    OutLog.PlainWrite("Executed Self [%s]\n", strCmd.sz());   
    system(strCmd.sz());
@@ -277,7 +312,7 @@ void CWDogPxr::_ProcessPsLst(SWatchItm * pItm, bool bCreate, KDLnkList<pid_t> * 
 bool CWDogPxr::_RplDaemonPid(pid_t pid)
 {
    SWatchItm * pFnd = m_flpWatchItm.GetItm(pid);
-   if (!pFnd)        return false;
+   if (!pFnd || !pFnd->bRun)        return false;
       
    KDLnkList<pid_t> lstPrev;
    KDLnkList<pid_t> lstCurr;
@@ -377,6 +412,8 @@ void CWDogPxr::_MonitorProcessesWait()
                continue;
             }
             
+            if (!pFnd->bRun)        continue;
+            
             Log("Process [%d] terminated found ppFnd where ppFnd->ImgName [%s]", pid, pFnd->strImgName.sz());
             ProcessItm(pFnd);
             m_pxrOutputLst.KickProcess();
@@ -403,7 +440,7 @@ void CWDogPxr::_MonitorProcessesScan()
       SWatchItm * pItm;
       for_each_itm(SWatchItm *, pItm, (*pLst))
       {
-         if (!pItm->bValid)                                                         continue;
+         if (!pItm->bRun)                                                           continue;
          if (uiTicNow - pItm->timPid <= RELAUNCH_INTERVAL)                          continue;
          
          KStr strExeLnk = KStr::Str("/proc/%d/exe", pItm->pid);
