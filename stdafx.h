@@ -9,6 +9,7 @@
 #include <KLibThreadIncUse.h>
 #include <KLibSyncIncUse.h>
 #include <KLibUIIncUse.h>
+#include "KTimeoutMgr.h"
 
 #include "Loggers.h"
 #include "AppException.h"

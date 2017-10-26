@@ -260,40 +260,47 @@ void CConsoleMain::_Daemonize()
    InitLoggers();
    Log("--> Daemonizing  pid [%d]", getpid());
 
-   if (m_bCold)                                       _ClearTmps();   
-   if (!m_strWatchListFileOther.IsEmpty())            _UpdtOthrWatchList();
-   
-   m_pxrWDog.Activate(m_envp);
-   m_pxrWDog.StartWatching(m_strWatchListFile);   
-
-   CFifoInst fifoInst;
-   fifoInst.SetOwner(true);
-   fifoInst.Open();
-
-   while (true)
+   try
    {
-      KDate::Sleep(3000);
+      if (m_bCold)                                       _ClearTmps();   
+      if (!m_strWatchListFileOther.IsEmpty())            _UpdtOthrWatchList();
       
-      KStr strLn;
-      fifoInst.Read(strLn);
+      Log("Activating pxr WDog");
+      m_pxrWDog.Activate(m_envp);
+      m_pxrWDog.StartWatching(m_strWatchListFile);
       
-      if (strLn.IsEmpty())             continue;
-      if (strLn == "STOP_SVC")         break;
+      Log("Opening Fifo inst");
+      CFifoInst fifoInst;
+      fifoInst.SetOwner(true);
+      fifoInst.Open();
+
+      while (true)
+      {
+         KDate::Sleep(3000);
+         
+         KStr strLn;
+         fifoInst.Read(strLn);
+         
+         if (strLn.IsEmpty())             continue;
+         if (strLn == "STOP_SVC")         break;
+         
+         KFieldReader fr(strLn);
+         KStr strCmd = fr.GetKStrField(" ");
+         KStr strCmdItm = fr.GetLine();
+         
+         if (strCmd == "-start_svc")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Start);
+         else if (strCmd == "-stop_svc")     m_pxrWDog.CmdProcess(strCmdItm, eCmd_Stop);
+         else if (strCmd == "-kill")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Kill);
+         else                                Log("Invalid cmd [%s] received", strCmd.sz());
+      }
       
-      KFieldReader fr(strLn);
-      KStr strCmd = fr.GetKStrField(" ");
-      KStr strCmdItm = fr.GetLine();
-      
-      if (strCmd == "-start_svc")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Start);
-      else if (strCmd == "-stop_svc")     m_pxrWDog.CmdProcess(strCmdItm, eCmd_Stop);
-      else if (strCmd == "-kill")         m_pxrWDog.CmdProcess(strCmdItm, eCmd_Kill);
-      else                                Log("Invalid cmd [%s] received", strCmd.sz());
+      fifoInst.Close();
+      m_pxrWDog.StopWatching();
+      m_pxrWDog.Deactivate();
+      exit(EXIT_SUCCESS);
    }
-   
-   fifoInst.Close();
-   m_pxrWDog.StopWatching();
-   m_pxrWDog.Deactivate();
-   exit(EXIT_SUCCESS);
+   catch_app_exs("CConsoleMain::_Daemonize", DISP);
+   exit(EXIT_FAILURE);
 }
 
 

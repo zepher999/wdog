@@ -8,6 +8,7 @@ SWatchItm::SWatchItm()
    args = NULL;
    pid = 0;
    timPid = 0;
+   uiRetryCnt = 0;
    nRetryIntrvl = 0;
    nRetryLmt = -1;
    bRun = true;
@@ -20,6 +21,7 @@ SWatchItm::SWatchItm(const KStr & _strImgName, const KStr & _strArgs, pid_t _pid
    args = NULL;
    pid = _pid;
    timPid = 0;
+   uiRetryCnt = 0;
    bScheduled = false;
    
    Set(0, -1, true, _strImgName, _strArgs);

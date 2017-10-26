@@ -15,6 +15,7 @@ struct SWatchItm
    char       **  args;
    KLock          lock;
    u_int          timPid;
+   u_int          uiRetryCnt;
    
    
    

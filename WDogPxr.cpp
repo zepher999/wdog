@@ -143,6 +143,7 @@ void CWDogPxr::ProcessItm(SWatchItm * pItm)
    {
       pItm->pid = pid;
       pItm->timPid = KDate::GetTickCount();
+      pItm->uiRetryCnt++;
       return;
    }
    
@@ -265,6 +266,7 @@ void CWDogPxr::_CmdItm(SWatchItm * pItm, const CCmdEnum & eCmd, KLog & OutLog)
          return;
       }
 
+      pItm->uiRetryCnt = 0;
       pItm->bRun = true;
       OutLog.PlainWrite("Set process [%s] to start running\n", pItm->strImgName.sz());
       return;
@@ -414,6 +416,14 @@ void CWDogPxr::_MonitorProcessesWait()
             
             if (!pFnd->bRun)        continue;
             
+            if (pFnd->uiRetryCnt >= (u_int)pFnd->nRetryLmt)
+            {
+               Log("Process [%d] terminated but ppFnd->ImgName [%s] has retry_cnt [%u] >= retry limit [%d] thus will be set to stop running now", pid, pFnd->strImgName.sz(), pFnd->uiRetryCnt, pFnd->nRetryLmt);
+               pFnd->bRun = false;
+               m_pxrOutputLst.KickProcess();
+               continue;
+            }
+            
             Log("Process [%d] terminated found ppFnd where ppFnd->ImgName [%s]", pid, pFnd->strImgName.sz());
             ProcessItm(pFnd);
             m_pxrOutputLst.KickProcess();
@@ -445,6 +455,14 @@ void CWDogPxr::_MonitorProcessesScan()
          
          KStr strExeLnk = KStr::Str("/proc/%d/exe", pItm->pid);
          if (KFileIO::FileExist(strExeLnk))        continue;
+         
+         if (pItm->uiRetryCnt >= (u_int)pItm->nRetryLmt)
+         {
+            Log("Process [%d] terminated but ppFnd->ImgName [%s] has retry_cnt [%u] >= retry limit [%d] thus will be set to stop running now", pItm->pid, pItm->strImgName.sz(), pItm->uiRetryCnt, pItm->nRetryLmt);
+            pItm->bRun = false;
+            m_pxrOutputLst.KickProcess();
+            continue;
+         }
          
          ProcessItm(pItm);
          m_pxrOutputLst.KickProcess();
